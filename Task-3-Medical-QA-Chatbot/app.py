@@ -1,136 +1,182 @@
-import os
+import streamlit as st
 import xml.etree.ElementTree as ET
+import os
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Dataset Path
-DATASET_FOLDER = "dataset/1_CancerGov_QA"
+# -------------------------------
+# Load XML Dataset
+# -------------------------------
+@st.cache_data
+def load_dataset():
+    questions = []
+    answers = []
 
-questions = []
-answers = []
+    dataset_folder = "dataset/1_CancerGov_QA"
 
-print("Loading Dataset...")
+    for filename in os.listdir(dataset_folder):
+        if filename.endswith(".xml"):
+            filepath = os.path.join(dataset_folder, filename)
 
-# Read XML Files
-for file in os.listdir(DATASET_FOLDER):
+            try:
+                tree = ET.parse(filepath)
+                root = tree.getroot()
 
-    if file.endswith(".xml"):
-
-        file_path = os.path.join(DATASET_FOLDER, file)
-
-        try:
-            tree = ET.parse(file_path)
-            root = tree.getroot()
-
-            qa_pairs = root.find("QAPairs")
-
-            if qa_pairs:
-
-                for qa in qa_pairs.findall("QAPair"):
-
+                for qa in root.findall(".//QAPair"):
                     question = qa.find("Question")
                     answer = qa.find("Answer")
 
                     if question is not None and answer is not None:
+                        q_text = question.text.strip() if question.text else ""
+                        a_text = answer.text.strip() if answer.text else ""
 
-                        questions.append(question.text.strip())
-                        answers.append(answer.text.strip())
+                        if q_text and a_text:
+                            questions.append(q_text)
+                            answers.append(a_text)
 
-        except Exception as e:
-            print("Error reading:", file, e)
+            except Exception:
+                pass
 
-print(f"Dataset Loaded Successfully!")
-print(f"Total Questions: {len(questions)}")
+    return questions, answers
 
-# TF-IDF Vectorization
+
+questions, answers = load_dataset()
+
+# -------------------------------
+# TF-IDF Model
+# -------------------------------
 vectorizer = TfidfVectorizer(stop_words="english")
 question_vectors = vectorizer.fit_transform(questions)
 
-# Medical Entities
-diseases = [
-    "leukemia",
-    "cancer",
-    "diabetes",
-    "asthma",
-    "anemia"
-]
-
-symptoms = [
-    "fever",
-    "cough",
-    "pain",
-    "bleeding",
-    "fatigue"
-]
-
-treatments = [
-    "chemotherapy",
-    "radiation",
-    "surgery",
-    "transplant"
-]
-
-print("\n===================================")
-print(" Medical Q&A Chatbot ")
-print(" Type 'exit' to quit")
-print("===================================")
-
-while True:
-
-    user_question = input("\nAsk Medical Question: ")
-
-    if user_question.lower() == "exit":
-        print("Goodbye!")
-        break
-
-    # Entity Recognition
-    detected_entities = []
-
-    for disease in diseases:
-        if disease.lower() in user_question.lower():
-            detected_entities.append(f"Disease: {disease}")
-
-    for symptom in symptoms:
-        if symptom.lower() in user_question.lower():
-            detected_entities.append(f"Symptom: {symptom}")
-
-    for treatment in treatments:
-        if treatment.lower() in user_question.lower():
-            detected_entities.append(f"Treatment: {treatment}")
-
-    if detected_entities:
-
-        print("\nDetected Medical Entities:")
-
-        for entity in detected_entities:
-            print("-", entity)
-
-    # Retrieval
+# -------------------------------
+# Answer Retrieval
+# -------------------------------
+def get_answer(user_question):
     user_vector = vectorizer.transform([user_question])
 
-    similarity_scores = cosine_similarity(
-        user_vector,
-        question_vectors
+    similarities = cosine_similarity(user_vector, question_vectors)
+
+    best_index = similarities.argmax()
+    best_score = similarities[0][best_index]
+
+    if best_score < 0.10:
+        return "Sorry, I could not find a relevant answer."
+
+    return answers[best_index]
+
+
+# -------------------------------
+# Medical Entity Recognition
+# -------------------------------
+def detect_entities(text):
+    symptoms = [
+        "fever",
+        "cough",
+        "pain",
+        "headache",
+        "fatigue",
+        "bleeding",
+        "weakness"
+    ]
+
+    diseases = [
+        "cancer",
+        "leukemia",
+        "diabetes",
+        "asthma"
+    ]
+
+    treatments = [
+        "chemotherapy",
+        "radiation",
+        "surgery",
+        "therapy"
+    ]
+
+    found = []
+
+    for word in symptoms:
+        if word.lower() in text.lower():
+            found.append(f"Symptom: {word}")
+
+    for word in diseases:
+        if word.lower() in text.lower():
+            found.append(f"Disease: {word}")
+
+    for word in treatments:
+        if word.lower() in text.lower():
+            found.append(f"Treatment: {word}")
+
+    return found
+
+
+# -------------------------------
+# Streamlit UI
+# -------------------------------
+
+st.set_page_config(
+    page_title="Medical Q&A Chatbot",
+    page_icon="🏥",
+    layout="wide"
+)
+
+st.markdown(
+    """
+    <h1 style='text-align:center; color:#2E86C1;'>
+    🏥 Medical Q&A Chatbot
+    </h1>
+    <h4 style='text-align:center;'>
+    Ask medical questions using the MedQuAD Dataset
+    </h4>
+    <hr>
+    """,
+    unsafe_allow_html=True
+)
+
+col1, col2 = st.columns([3, 1])
+
+with col2:
+    st.info(f"📚 Questions Loaded: {len(questions)}")
+
+with col1:
+    user_question = st.text_input(
+        "🔍 Enter your medical question:",
+        placeholder="Example: What are the symptoms of leukemia?"
     )
 
-    best_match_index = similarity_scores.argmax()
+if st.button("Get Answer", use_container_width=True):
 
-    best_score = similarity_scores[0][best_match_index]
+    if user_question.strip():
 
-    print("\nMost Relevant Question:")
-    print(questions[best_match_index])
+        answer = get_answer(user_question)
 
-    print("\nSimilarity Score:")
-    print(round(best_score, 2))
+        st.markdown("## 📖 Answer")
+        st.success(answer)
 
-    print("\nAnswer:")
-    print("=" * 50)
+        entities = detect_entities(user_question)
 
-    answer = answers[best_match_index]
+        if entities:
+            st.markdown("## 🧬 Detected Medical Entities")
 
-    if len(answer) > 2000:
-        answer = answer[:2000] + "..."
+            for entity in entities:
+                st.write("✅", entity)
 
-    print(answer)
+    else:
+        st.warning("⚠ Please enter a question.")
 
-    print("\n" + "=" * 50)
+st.markdown("---")
+
+with st.expander("💡 Example Questions"):
+    st.write("• What is Adult Acute Lymphoblastic Leukemia?")
+    st.write("• What are the symptoms of Adult Acute Lymphoblastic Leukemia?")
+    st.write("• How to diagnose Adult Acute Lymphoblastic Leukemia?")
+    st.write("• What are the treatments for Adult Acute Lymphoblastic Leukemia?")
+
+st.markdown(
+    """
+    <div style='text-align:center; color:gray'>
+    Developed using MedQuAD Dataset | Streamlit | Scikit-Learn
+    </div>
+    """,
+    unsafe_allow_html=True
+)
