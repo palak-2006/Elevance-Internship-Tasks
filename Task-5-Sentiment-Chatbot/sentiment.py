@@ -3,9 +3,8 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 analyzer = SentimentIntensityAnalyzer()
 
 def analyze_sentiment(text):
-    score = analyzer.polarity_scores(text)
-
-    compound = score["compound"]
+    scores = analyzer.polarity_scores(text)
+    compound = scores["compound"]
 
     if compound >= 0.05:
         sentiment = "Positive 😊"
@@ -14,4 +13,4 @@ def analyze_sentiment(text):
     else:
         sentiment = "Neutral 😐"
 
-    return sentiment, score
+    return sentiment, scores
